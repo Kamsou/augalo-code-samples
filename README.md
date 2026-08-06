@@ -72,6 +72,6 @@ Le document de décision que j'écrirais avant de structurer ce back : le diagno
 
 Ce back est du NestJS en couches, pas du DDD. Les modèles Mongoose sont injectés directement dans les services, sans couche repository : pour un produit que je tiens seule, ça me permet d'ouvrir un module et de le comprendre en entier. La cohérence vient des DTO validés en entrée, des codes d'erreur typés en sortie et des tests sur les règles sensibles.
 
-La seule abstraction que j'ai payée est `IapService`. C'était justifié parce que ces deux API sont instables et que leurs modes de panne devaient devenir une décision métier explicite.
+La seule exception est `IapService`, qui isole les API d'achat d'Apple et de Google derrière un type à moi. Elle se justifie parce que ces deux API tombent régulièrement : sans cette couche, un timeout réseau déciderait à ma place si un client a payé ou non.
 
 Ce que je changerais à plusieurs : extraire une couche repository, casser `AdminService` devenu un fourre-tout à dix modèles, et remonter les invariants d'accès dans un objet métier au lieu de les laisser répartis entre deux services. Trois arbitrages conscients, pas trois angles morts. Le raisonnement complet est dans [`05-target-architecture`](05-target-architecture).

@@ -36,8 +36,11 @@ Elles expliquent la plupart des décisions visibles dans ces extraits.
 | [`02-securite-paiement`](02-securite-paiement) | Couche anticorruption sur les stores Apple et Google, et le filet de tests qui protège l'accès premium |
 | [`03-auth-et-contrat-erreurs`](03-auth-et-contrat-erreurs) | Authentification JWT, garde par défaut avec opt-out explicite, codes d'erreur stables |
 | [`04-front-contrat-api`](04-front-contrat-api) | L'autre bout du contrat : client HTTP, traduction des codes d'erreur, état d'abonnement dérivé |
+| [`05-architecture-cible`](05-architecture-cible) | Le diagnostic du back, le modèle vers lequel je le ferais évoluer, et l'ordre de migration sous contrainte de compatibilité |
 
 Chaque dossier a son propre README qui explique le pourquoi.
+
+Les dossiers 01 à 04 sont du code en production. Le 05 ne l'est pas : c'est le document de décision que j'écrirais avant de structurer ce back, avec une seule esquisse de code explicitement marquée comme telle.
 
 ## Choix d'architecture et limites connues
 
@@ -54,3 +57,5 @@ Autant le dire directement : ce back est du NestJS en couches, pas du DDD.
 - Remonter les invariants d'accès (quel pack donne droit à quoi, sur quelle période) dans un objet métier plutôt que de les laisser répartis entre le service des reçus et celui des abonnements.
 
 Je n'ai pas pratiqué DDD, CQRS ou Clean Architecture en équipe. Je sais reconnaître ce qui en relève et ce qui n'en relève pas, et argumenter les arbitrages que j'ai faits sur ce produit.
+
+Le détail de ce raisonnement, avec le diagnostic chiffré et le plan de migration étape par étape, est dans [`05-architecture-cible`](05-architecture-cible).

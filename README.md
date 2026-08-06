@@ -26,7 +26,7 @@ L'API a d'abord été écrite en Express / MongoDB, puis migrée vers NestJS san
 
 ## Les dossiers
 
-### [`01-packs-module`](01-packs-module) — le module type du back
+### [`01-packs-module`](01-packs-module), le module type du back
 
 Environ 280 lignes : controller, service, schéma, DTO. Un « pack » est un droit d'accès vendu pour une année scolaire ou pour un palier de galops.
 
@@ -34,7 +34,7 @@ Environ 280 lignes : controller, service, schéma, DTO. Un « pack » est un dro
 
 Sa limite : `findAll`, `findActive` et `findActiveTiers` ne diffèrent que par leur filtre Mongo. C'est le premier endroit où j'introduirais une couche repository.
 
-### [`02-payment-security`](02-payment-security) — la couche anticorruption sur les stores
+### [`02-payment-security`](02-payment-security), la couche anticorruption sur les stores
 
 Le morceau sur lequel j'ai le plus réfléchi. `IapService` parle aux API Apple et Google et n'expose vers l'intérieur du système qu'un type à moi : aucun format de ces deux API ne franchit sa frontière.
 
@@ -44,7 +44,7 @@ Le troisième état rend l'incertitude explicite, et la règle tient en une phra
 
 Les 21 tests du `.spec` sont écrits comme des propriétés de sécurité. Celui auquel je tiens le plus vérifie qu'un achat mobile ne passe pas par la validation Stripe : des builds anciens restent en circulation des semaines et certains n'envoyaient pas encore de `productId`, donc le serveur doit reconstituer l'information contre le store plutôt que la déduire du montant payé.
 
-### [`03-auth-and-error-contract`](03-auth-and-error-contract) — les pièces qui rendent le dossier 01 possible
+### [`03-auth-and-error-contract`](03-auth-and-error-contract), les pièces qui rendent le dossier 01 possible
 
 Six fichiers, moins de 150 lignes. Deux détails valent le coup d'œil.
 
@@ -52,7 +52,7 @@ Le throttler de réinitialisation de mot de passe compte par IP **et** email nor
 
 `jwt.strategy` recharge l'utilisateur en base pour relire `isAdmin` au lieu de croire le token, donc retirer des droits d'administration prend effet tout de suite.
 
-### [`04-frontend-architecture`](04-frontend-architecture) — l'architecture côté client
+### [`04-frontend-architecture`](04-frontend-architecture), l'architecture côté client
 
 Le versant où je suis le plus expérimentée. Trois décisions de frontière, et une asymétrie que j'assume mal.
 
@@ -64,7 +64,7 @@ L'asymétrie : côté back, une route oubliée est fermée ; côté front, `auth
 
 Le contrat d'erreurs a le même problème. Sur les 33 entrées de la table de traduction, 11 sont des codes et 22 sont des phrases anglaises du serveur. Et le bloc le plus récent, la licence classe, est dans l'ancien style : la dette n'est pas résiduelle, elle est redevenue le mode par défaut.
 
-### [`05-target-architecture`](05-target-architecture) — le seul dossier qui n'est pas du code de production
+### [`05-target-architecture`](05-target-architecture), le seul dossier qui n'est pas du code de production
 
 Le document de décision que j'écrirais avant de structurer ce back : le diagnostic des quatre modèles d'accès empilés et des trois divergences qu'ils ont produites, le modèle vers lequel je le ferais évoluer, et l'ordre de migration sous contrainte de compatibilité. Une seule esquisse de code, explicitement marquée comme telle.
 

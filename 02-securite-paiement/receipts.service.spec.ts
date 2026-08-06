@@ -1,31 +1,53 @@
-/* eslint-disable @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment */
 import { BadRequestException } from '@nestjs/common';
 import { ReceiptsService } from './receipts.service';
 
-/**
- * Filet anti-régression pour le durcissement D.3 (validation paiement web).
- * Propriété de sécurité : un POST /receipts avec une transaction web non payée
- * ou falsifiée ne doit JAMAIS créer de reçu ni accorder l'accès premium.
- * Les achats mobiles (IAP) ne passent pas par la validation Stripe (rétrocompat).
- */
-describe('ReceiptsService — validation paiement web (D.3)', () => {
+type Stub<K extends string> = Record<K, jest.Mock>;
+
+type IapStub = Stub<
+  'validateApple' | 'validateGoogle' | 'resolveGoogleProductId'
+> & { enforced: boolean };
+
+type TransactionInput = {
+  transactionId?: string;
+  purchaseId?: string;
+  platform?: string;
+  purchaseDate?: string;
+  productId?: string;
+  price?: number;
+};
+
+type UserUpdate = { isPremium?: boolean; hasClubhouseAccess?: boolean };
+
+describe('ReceiptsService : validation paiement web (D.3)', () => {
   let service: ReceiptsService;
 
-  let receiptModel: any;
-  let userModel: any;
-  let packModel: any;
-  let subscriptionModel: any;
-  let classModel: any;
-  let emailService: any;
-  let sendinblueService: any;
-  let stripeService: any;
-  let iapService: any;
+  let receiptModel: Stub<'findOne' | 'create'>;
+  let userModel: Stub<'findById' | 'findByIdAndUpdate'>;
+  let packModel: Stub<'findOne' | 'findById'>;
+  let subscriptionModel: Stub<'find' | 'findOne' | 'create'>;
+  let classModel: Stub<'findById'>;
+  let emailService: Stub<'sendEmail'>;
+  let sendinblueService: Stub<'updateContactPremium'>;
+  let stripeService: Stub<'getCheckoutSession'>;
+  let iapService: IapStub;
+
+  const createReceipt = (input: {
+    userId: string;
+    transaction: TransactionInput;
+  }) => service.create(input as Parameters<ReceiptsService['create']>[0]);
+
+  const wroteToUser = (predicate: (update: UserUpdate) => boolean): boolean =>
+    userModel.findByIdAndUpdate.mock.calls.some((call: unknown[]) =>
+      predicate((call[1] ?? {}) as UserUpdate),
+    );
 
   const PREMIUM_PRODUCT_ID = 'com.ionic.augalo.com.premium.2026';
   const CLUBHOUSE_WEB_ID = 'com.ionic.augalo.com.clubhouse';
   const CLUBHOUSE_IOS_ID = 'com.augalo.themes_quiz_unlock';
 
-  const webTransaction = (overrides: Record<string, any> = {}) => ({
+  const webTransaction = (
+    overrides: TransactionInput = {},
+  ): TransactionInput => ({
     transactionId: 'pi_test_123',
     purchaseId: 'cs_test_123',
     platform: 'web',
@@ -75,15 +97,17 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
     };
 
     service = new ReceiptsService(
-      receiptModel,
-      userModel,
-      packModel,
-      subscriptionModel,
-      classModel,
-      emailService,
-      sendinblueService,
-      stripeService,
-      iapService,
+      ...([
+        receiptModel,
+        userModel,
+        packModel,
+        subscriptionModel,
+        classModel,
+        emailService,
+        sendinblueService,
+        stripeService,
+        iapService,
+      ] as unknown as ConstructorParameters<typeof ReceiptsService>),
     );
   });
 
@@ -95,10 +119,10 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
       });
 
       await expect(
-        service.create({
+        createReceipt({
           userId: 'user_1',
           transaction: webTransaction(),
-        } as any),
+        }),
       ).rejects.toBeInstanceOf(BadRequestException);
 
       expect(receiptModel.create).not.toHaveBeenCalled();
@@ -111,10 +135,10 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
       );
 
       await expect(
-        service.create({
+        createReceipt({
           userId: 'user_1',
           transaction: webTransaction(),
-        } as any),
+        }),
       ).rejects.toBeInstanceOf(BadRequestException);
 
       expect(receiptModel.create).not.toHaveBeenCalled();
@@ -123,10 +147,10 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
 
     it('le purchaseId (session id) est absent', async () => {
       await expect(
-        service.create({
+        createReceipt({
           userId: 'user_1',
           transaction: webTransaction({ purchaseId: undefined }),
-        } as any),
+        }),
       ).rejects.toBeInstanceOf(BadRequestException);
 
       expect(stripeService.getCheckoutSession).not.toHaveBeenCalled();
@@ -140,10 +164,10 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
       });
 
       await expect(
-        service.create({
+        createReceipt({
           userId: 'user_1',
           transaction: webTransaction(),
-        } as any),
+        }),
       ).rejects.toBeInstanceOf(BadRequestException);
 
       expect(receiptModel.create).not.toHaveBeenCalled();
@@ -154,7 +178,7 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
   describe('plateforme non reconnue', () => {
     it('refuse une transaction vide sans jamais accorder premium', async () => {
       await expect(
-        service.create({ userId: 'user_1', transaction: {} } as any),
+        createReceipt({ userId: 'user_1', transaction: {} }),
       ).rejects.toBeInstanceOf(BadRequestException);
 
       expect(receiptModel.create).not.toHaveBeenCalled();
@@ -164,7 +188,7 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
 
     it('refuse une plateforme inconnue', async () => {
       await expect(
-        service.create({
+        createReceipt({
           userId: 'user_1',
           transaction: {
             transactionId: 'x',
@@ -172,7 +196,7 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
             platform: 'windows-store-transaction',
             purchaseDate: new Date().toISOString(),
           },
-        } as any),
+        }),
       ).rejects.toBeInstanceOf(BadRequestException);
 
       expect(receiptModel.create).not.toHaveBeenCalled();
@@ -183,7 +207,7 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
       for (const platform of ['ios-appstore', 'android-playstore']) {
         jest.clearAllMocks();
         await expect(
-          service.create({
+          createReceipt({
             userId: 'user_1',
             transaction: {
               transactionId: `tx_${platform}`,
@@ -192,7 +216,7 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
               purchaseDate: new Date().toISOString(),
               productId: CLUBHOUSE_IOS_ID,
             },
-          } as any),
+          }),
         ).resolves.toBeDefined();
       }
     });
@@ -205,10 +229,10 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
     });
 
     await expect(
-      service.create({
+      createReceipt({
         userId: 'user_1',
         transaction: webTransaction({ productId: CLUBHOUSE_WEB_ID }),
-      } as any),
+      }),
     ).resolves.toBeDefined();
 
     expect(stripeService.getCheckoutSession).toHaveBeenCalledWith(
@@ -217,9 +241,9 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
     expect(receiptModel.create).toHaveBeenCalled();
   });
 
-  it('ne valide PAS via Stripe pour un achat mobile (IAP) — rétrocompat', async () => {
+  it('ne valide PAS via Stripe pour un achat mobile (IAP) : rétrocompat', async () => {
     await expect(
-      service.create({
+      createReceipt({
         userId: 'user_1',
         transaction: {
           transactionId: 'GPA.1234',
@@ -228,7 +252,7 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
           purchaseDate: new Date().toISOString(),
           productId: CLUBHOUSE_IOS_ID,
         },
-      } as any),
+      }),
     ).resolves.toBeDefined();
 
     expect(stripeService.getCheckoutSession).not.toHaveBeenCalled();
@@ -236,7 +260,7 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
   });
 
   describe('IAP enforce (D.3-mobile)', () => {
-    const iosTx = (overrides: Record<string, any> = {}) => ({
+    const iosTx = (overrides: TransactionInput = {}): TransactionInput => ({
       transactionId: 'apple_tx_123',
       purchaseId: 'apple_tok_123',
       platform: 'ios-appstore',
@@ -254,7 +278,7 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
       });
 
       await expect(
-        service.create({ userId: 'user_1', transaction: iosTx() } as any),
+        createReceipt({ userId: 'user_1', transaction: iosTx() }),
       ).rejects.toBeInstanceOf(BadRequestException);
 
       expect(receiptModel.create).not.toHaveBeenCalled();
@@ -270,7 +294,7 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
       });
 
       await expect(
-        service.create({ userId: 'user_1', transaction: iosTx() } as any),
+        createReceipt({ userId: 'user_1', transaction: iosTx() }),
       ).resolves.toBeDefined();
 
       expect(receiptModel.create).toHaveBeenCalled();
@@ -285,7 +309,7 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
       });
 
       await expect(
-        service.create({ userId: 'user_1', transaction: iosTx() } as any),
+        createReceipt({ userId: 'user_1', transaction: iosTx() }),
       ).resolves.toBeDefined();
 
       expect(receiptModel.create).toHaveBeenCalled();
@@ -300,13 +324,13 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
       });
 
       await expect(
-        service.create({
+        createReceipt({
           userId: 'user_1',
           transaction: iosTx({
             platform: 'android-playstore',
             productId: 'club_house_unlock',
           }),
-        } as any),
+        }),
       ).rejects.toBeInstanceOf(BadRequestException);
 
       expect(receiptModel.create).not.toHaveBeenCalled();
@@ -329,7 +353,7 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
         type: 'annual_tier',
       });
 
-      await service.create({
+      await createReceipt({
         userId: 'user_1',
         transaction: {
           transactionId: 'apple_tx_g34',
@@ -344,15 +368,12 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
         expect.objectContaining({ type: 'annual_tier', packs: ['pack_g34'] }),
       );
 
-      const setPremium = userModel.findByIdAndUpdate.mock.calls.some(
-        (call: any) => call[1]?.isPremium === true,
-      );
-      expect(setPremium).toBe(false);
+      expect(wroteToUser((update) => update.isPremium === true)).toBe(false);
     });
   });
 
   describe('Builds sans productId (reconstitution serveur)', () => {
-    const legacyTx = (overrides: Record<string, any> = {}) => ({
+    const legacyTx = (overrides: TransactionInput = {}): TransactionInput => ({
       transactionId: 'legacy_tx_1',
       purchaseId: 'legacy_tok_1',
       platform: 'ios-appstore',
@@ -362,17 +383,9 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
     });
 
     const grantedClubhouse = (): boolean =>
-      Boolean(
-        userModel.findByIdAndUpdate.mock.calls.some(
-          (call: any) => call[1]?.hasClubhouseAccess === true,
-        ),
-      );
+      wroteToUser((update) => update.hasClubhouseAccess === true);
     const grantedPremium = (): boolean =>
-      Boolean(
-        userModel.findByIdAndUpdate.mock.calls.some(
-          (call: any) => call[1]?.isPremium === true,
-        ),
-      );
+      wroteToUser((update) => update.isPremium === true);
 
     it('iOS : reconstitue le productId depuis Apple et accorde le seul Club House', async () => {
       iapService.validateApple.mockResolvedValue({
@@ -382,7 +395,7 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
         productId: CLUBHOUSE_IOS_ID,
       });
 
-      await service.create({
+      await createReceipt({
         userId: 'user_1',
         transaction: legacyTx(),
       });
@@ -392,7 +405,7 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
       expect(subscriptionModel.create).not.toHaveBeenCalled();
     });
 
-    it('iOS : persiste le productId reconstitue sur le recu', async () => {
+    it('iOS : persiste le productId reconstitué sur le reçu', async () => {
       iapService.validateApple.mockResolvedValue({
         configured: true,
         verdict: 'valid',
@@ -400,7 +413,7 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
         productId: CLUBHOUSE_IOS_ID,
       });
 
-      await service.create({
+      await createReceipt({
         userId: 'user_1',
         transaction: legacyTx(),
       });
@@ -414,7 +427,7 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
       );
     });
 
-    it('Android : le productId est resolu contre le store, pas deduit du prix', async () => {
+    it('Android : le productId est résolu contre le store, pas déduit du prix', async () => {
       iapService.resolveGoogleProductId.mockResolvedValue('club_house_unlock');
       iapService.validateGoogle.mockResolvedValue({
         configured: true,
@@ -422,7 +435,7 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
         detail: 'purchaseState=0',
       });
 
-      await service.create({
+      await createReceipt({
         userId: 'user_1',
         transaction: legacyTx({ platform: 'android-playstore' }),
       });
@@ -435,7 +448,7 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
       expect(grantedPremium()).toBe(false);
     });
 
-    it('Android : un prix 499 seul ne suffit PAS a accorder le Club House', async () => {
+    it('Android : un prix 499 seul ne suffit PAS à accorder le Club House', async () => {
       iapService.resolveGoogleProductId.mockResolvedValue(null);
       iapService.validateGoogle.mockResolvedValue({
         configured: true,
@@ -454,7 +467,7 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
       });
       packModel.findById.mockResolvedValue({ name: 'Pack Premium' });
 
-      await service.create({
+      await createReceipt({
         userId: 'user_1',
         transaction: legacyTx({ platform: 'android-playstore', price: 499 }),
       });
@@ -462,13 +475,13 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
       expect(grantedClubhouse()).toBe(false);
     });
 
-    it('Web : le productId de la session Stripe fait autorite', async () => {
+    it('Web : le productId de la session Stripe fait autorité', async () => {
       stripeService.getCheckoutSession.mockResolvedValue({
         payment_status: 'paid',
         metadata: { productId: CLUBHOUSE_WEB_ID },
       });
 
-      await service.create({
+      await createReceipt({
         userId: 'user_1',
         transaction: {
           transactionId: 'pi_web_1',
@@ -500,7 +513,7 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
       });
       packModel.findById.mockResolvedValue({ name: 'Pack Premium' });
 
-      await service.create({
+      await createReceipt({
         userId: 'user_1',
         transaction: legacyTx({ platform: 'android-playstore', price: 2999 }),
       });
@@ -509,7 +522,7 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
       expect(subscriptionModel.create).toHaveBeenCalled();
     });
 
-    it('sans productId ni prix exploitable, conserve le repli par annee', async () => {
+    it('sans productId ni prix exploitable, conserve le repli par année', async () => {
       iapService.validateGoogle.mockResolvedValue({
         configured: true,
         verdict: 'unknown',
@@ -527,7 +540,7 @@ describe('ReceiptsService — validation paiement web (D.3)', () => {
       });
       packModel.findById.mockResolvedValue({ name: 'Pack Premium' });
 
-      await service.create({
+      await createReceipt({
         userId: 'user_1',
         transaction: legacyTx({
           platform: 'android-playstore',

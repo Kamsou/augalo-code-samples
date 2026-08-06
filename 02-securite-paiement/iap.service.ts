@@ -11,17 +11,6 @@ export type IapValidationResult = {
   productId?: string;
 };
 
-/**
- * Validation serveur des achats in-app (D.3-mobile).
- * - Apple : App Store Server API "Get Transaction Info" (auth JWT ES256).
- * - Google : Play Developer API "purchases.products.get" (service account, JWT RS256).
- *
- * Verdict : 'valid' = payé confirmé par le store ; 'invalid' = confirmé non-payé /
- * introuvable (reçu falsifié) ; 'unknown' = indéterminé (non configuré, réseau,
- * timeout, 5xx, permission…). En mode enforce, seul 'invalid' est rejeté — 'unknown'
- * est toujours toléré pour ne jamais bloquer un acheteur légitime sur un souci d'infra.
- * Aucun secret loggé, ne throw jamais.
- */
 @Injectable()
 export class IapService {
   private readonly logger = new Logger(IapService.name);
@@ -36,6 +25,8 @@ export class IapService {
   private readonly googleClientEmail: string | null;
   private readonly googlePrivateKey: string | null;
   private readonly androidPackage: string;
+
+  private googleToken: { value: string; expiresAt: number } | null = null;
 
   constructor(private readonly config: ConfigService) {
     this.enforced = this.config.get<string>('IAP_ENFORCE') !== 'false';
@@ -61,7 +52,7 @@ export class IapService {
         clientEmail = parsed.client_email ?? null;
         privateKey = parsed.private_key ?? null;
       } catch {
-        this.logger.warn('GOOGLE_PLAY_SA_BASE64 invalide (JSON non parsable)');
+        this.logger.warn('GOOGLE_PLAY_SA_BASE64 is not parsable JSON');
       }
     }
     this.googleClientEmail = clientEmail;
@@ -158,17 +149,18 @@ export class IapService {
       }
     }
 
-    return this.result(
-      true,
-      'invalid',
-      'transaction introuvable (prod+sandbox)',
-    );
+    return this.result(true, 'invalid', 'transaction not found (prod+sandbox)');
   }
 
   // ---------------- Google ----------------
 
   private async googleAccessToken(): Promise<string> {
     const now = Math.floor(Date.now() / 1000);
+
+    if (this.googleToken && this.googleToken.expiresAt > now + 60) {
+      return this.googleToken.value;
+    }
+
     const assertion = jwt.sign(
       {
         iss: this.googleClientEmail as string,
@@ -194,10 +186,18 @@ export class IapService {
     if (!res.ok) {
       throw new Error(`token exchange HTTP ${res.status}`);
     }
-    const data = (await res.json()) as { access_token?: string };
+    const data = (await res.json()) as {
+      access_token?: string;
+      expires_in?: number;
+    };
     if (!data.access_token) {
       throw new Error('no access_token');
     }
+
+    this.googleToken = {
+      value: data.access_token,
+      expiresAt: now + (data.expires_in ?? 3600),
+    };
     return data.access_token;
   }
 
@@ -230,7 +230,6 @@ export class IapService {
 
       if (res.status === 200) {
         const body = (await res.json()) as { purchaseState?: number };
-        // purchaseState : 0 = acheté, 1 = annulé, 2 = en attente
         const verdict: IapVerdict =
           body.purchaseState === 0 ? 'valid' : 'invalid';
         return this.result(
@@ -239,7 +238,6 @@ export class IapService {
           `purchaseState=${body.purchaseState}`,
         );
       }
-      // Token mal formé / inexistant → reçu falsifié. Erreurs infra/permission → grace.
       if (res.status === 400 || res.status === 404) {
         return this.result(true, 'invalid', `HTTP ${res.status}`);
       }

@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsNumber, IsString, IsBoolean, IsOptional, IsDate, Min } from 'class-validator';
+import { IsNotEmpty, IsNumber, IsString, IsBoolean, IsOptional, IsDate, IsArray, IsInt, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreatePackDto {
@@ -48,4 +48,11 @@ export class CreatePackDto {
   @IsOptional()
   @IsBoolean()
   isLegacy?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  @Max(7, { each: true })
+  gallops?: number[];
 }

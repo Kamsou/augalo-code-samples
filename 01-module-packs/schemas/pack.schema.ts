@@ -5,15 +5,14 @@ export type PackDocument = Pack & Document;
 
 @Schema({ timestamps: true })
 export class Pack {
-  // Pas unique : plusieurs packs par an (global + paliers).
   @Prop({ required: true })
   year: number;
 
   @Prop({ required: true })
-  startDate: Date; // Sept 2024
+  startDate: Date;
 
   @Prop({ required: true })
-  endDate: Date; // Août 2025
+  endDate: Date;
 
   @Prop({ required: true })
   name: string; // "Pack Premium 2024-2025"
@@ -34,13 +33,11 @@ export class Pack {
   androidProductId: string;
 
   @Prop({ default: true })
-  isActive: boolean; // Pack actuellement en vente
+  isActive: boolean;
 
   @Prop({ default: false })
-  isLegacy: boolean; // Ancien système (isPremium = true)
+  isLegacy: boolean;
 
-  // Galops couverts par un pack PALIER (ex. [3, 4] pour G3/4). Absent sur le pack
-  // global. Sa présence marque le pack comme "palier" (scope au lieu de tout).
   @Prop({ type: [Number] })
   gallops?: number[];
 }
